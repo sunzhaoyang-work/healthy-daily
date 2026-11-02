@@ -46,9 +46,110 @@ function renderTodayGramMeals(){let i=(new Date(date+"T12:00:00").getDay()+6)%7;
 function renderMealLog(){const log=state.mealLogs[date]||{};const options=["按计划吃了","调整了食物","未吃／不饿","未记录"];document.getElementById("mealLogInputs").innerHTML=mealLabels.map((label,i)=>'<div class="action"><label><strong>'+label+'</strong><select id="mealStatus'+i+'">'+options.map(v=>'<option value="'+v+'" '+(log[i]?.status===v?'selected':'')+'>'+v+'</option>').join("")+'</select></label><input id="mealNote'+i+'" type="text" maxlength="160" style="margin-top:8px;width:100%;padding:10px;border:1px solid #e8cbd6;border-radius:10px" placeholder="实际吃了什么？可留空" value="'+escapeText(log[i]?.note||"")+'"></div>').join("");document.getElementById("mealLogStatus").textContent=log.savedAt?'本日已保存 · '+log.savedAt:'';}
 function saveMealLog(){const log={savedAt:new Date().toLocaleString("zh-CN")};for(let i=0;i<3;i++){log[i]={status:document.getElementById("mealStatus"+i).value,note:document.getElementById("mealNote"+i).value.trim()};}state.mealLogs[date]=log;persist();renderMealLog();renderMealLogHistory();}
 function renderMealLogHistory(){const rows=Object.entries(state.mealLogs||{}).sort((a,b)=>b[0].localeCompare(a[0]));document.getElementById("mealLogHistory").innerHTML=rows.length?rows.map(([d,log])=>'<div class="action"><strong>'+escapeText(d)+'</strong>'+mealLabels.map((label,i)=>'<div class="small">'+label+'：'+escapeText(log[i]?.status||"未记录")+(log[i]?.note?' · '+escapeText(log[i].note):'')+'</div>').join("")+'</div>').join(""):'<p class="muted">还没有饮食记录。可在首页保存第一天。</p>';}
-function renderExercise(){let x=exerciseFor(date),p=x.period;document.getElementById("dailyExercise").innerHTML='<div class="notice">'+(p.active?'🌸 '+(p.estimated?'按每月15号推算，可能处于经期；请以实际情况为准':'根据已记录日期推算，可能处于经期'):'💗 按舒适程度运动，累了可以减量')+'</div><strong>'+x.title+'</strong><p class="pill">'+x.duration+'</p>'+x.steps.map((t,i)=>'<div class="action">'+(i+1)+'. '+t+'</div>').join("");}
-function quickSave(){let n=document.getElementById("quickWeight").value;if(!n||Number(n)<60||Number(n)>250)return alert("请输入合理的体重数值（斤）");state.records[date]={...(state.records[date]||{}),weight:n};persist();document.getElementById("quickWeightStatus").textContent="今天已记录："+n+"斤 ♡";renderHistory();renderWeight();}
-function renderWeight(){let arr=Object.entries(state.records||{}).filter(([d,v])=>v.weight&&Number.isFinite(Number(v.weight))).sort((a,b)=>a[0].localeCompare(b[0])).slice(-14),last=arr[arr.length-1],first=arr[0];document.getElementById("weightSummary").innerHTML='<div class="stat"><span class="mini">最近一次记录</span><b>'+(last?last[1].weight+'斤':'暂无')+'</b></div><div class="stat"><span class="mini">最近记录变化</span><b>'+(arr.length>1?(Number(last[1].weight)-Number(first[1].weight)).toFixed(1)+'斤':'暂无')+'</b></div>';let c=document.getElementById("weightChart"),ctx=c.getContext("2d");ctx.clearRect(0,0,c.width,c.height);ctx.fillStyle="#9c8190";ctx.font="22px sans-serif";if(arr.length<2){ctx.fillText("记录两天后显示趋势",100,105);return}let vals=arr.map(x=>Number(x[1].weight)),mn=Math.min(...vals)-1,mx=Math.max(...vals)+1;ctx.strokeStyle="#e3d4dc";ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(45,20);ctx.lineTo(45,160);ctx.lineTo(570,160);ctx.stroke();ctx.strokeStyle="#d9789a";ctx.lineWidth=4;ctx.beginPath();arr.forEach((x,i)=>{let px=50+i*510/(arr.length-1),py=145-(vals[i]-mn)/(mx-mn)*110;i?ctx.lineTo(px,py):ctx.moveTo(px,py)});ctx.stroke();ctx.fillStyle="#a85a79";ctx.font="16px sans-serif";ctx.fillText(mx.toFixed(1)+"斤",4,24);ctx.fillText(mn.toFixed(1)+"斤",4,158);}
+
+const workoutEnergy=[
+{met:4.0,min:20,max:25},
+{met:3.3,min:30,max:40},
+{met:2.5,min:0,max:20},
+{met:4.0,min:15,max:25},
+{met:3.3,min:30,max:40},
+{met:3.3,min:40,max:60},
+{met:2.5,min:0,max:0}
+];
+function todayWeekIndex(){return (new Date(date+"T12:00:00").getDay()+6)%7;}
+function validWeight(v){return v!==undefined&&v!==null&&String(v).trim()!==""&&Number.isFinite(Number(v))&&Number(v)>=60&&Number(v)<=250;}
+function estimatedWeightKg(){const v=state.records?.[date]?.weight;return validWeight(v)?Number(v)/2:50.5;}
+function activityProfile(d){const index=(new Date(d+"T12:00:00").getDay()+6)%7;const p=periodStatus(d);return p.active?{met:2.5,min:0,max:20}:workoutEnergy[index];}
+function energyKcal(minutes,met){return Math.round(Math.max(0,minutes)*met*estimatedWeightKg()/60);}
+function exerciseEstimateLine(profile){if(profile.max===0)return "预计消耗：休息日不设运动热量目标";return "🔥 预计运动能量消耗：约 "+energyKcal(profile.min,profile.met)+"–"+energyKcal(profile.max,profile.met)+" 千卡（按约 "+estimatedWeightKg().toFixed(1)+"kg 估算）";}
+function renderExercise(){
+const x=exerciseFor(date),p=x.period,profile=activityProfile(date);
+document.getElementById("dailyExercise").innerHTML=
+'<div class="notice">'+(p.active?'🌸 '+(p.estimated?'按每月15号粗略推算经期，请以实际情况为准':'按照记录推算经期，请以实际情况为准'):'💗 按舒适程度运动，疲劳时可以减量或休息')+'</div>'+
+'<strong>'+x.title+'</strong><p class="pill">'+x.duration+'</p>'+
+'<div class="action"><strong>'+exerciseEstimateLine(profile)+'</strong><div class="mini">仅供参考，实际消耗会随强度、动作、体重而变化，不是精确测量。</div></div>'+
+x.steps.map((t,i)=>'<div class="small" style="padding:5px 0">'+(i+1)+'. '+t+'</div>').join("");
+renderSavedExercise();
+}
+function renderSavedExercise(){
+const e=state.exerciseLogs?.[date];const target=document.getElementById("exerciseActual");
+if(!e){target.textContent="今天尚未记录实际运动时长（可选）";return;}
+document.getElementById("exerciseMinutes").value=e.minutes;
+target.textContent=e.minutes===0?"今天选择休息，已记录":"已记录 "+e.minutes+" 分钟 · 预计运动消耗约 "+e.kcal+" 千卡（估算值）";
+}
+function saveExercise(){
+const raw=document.getElementById("exerciseMinutes").value;
+if(raw.trim()===""||!Number.isInteger(Number(raw))||Number(raw)<0||Number(raw)>240){alert("请输入0–240分钟的实际运动时长，休息可填0");return;}
+const minutes=Number(raw),met=activityProfile(date).met;
+state.exerciseLogs||={};state.exerciseLogs[date]={minutes:minutes,kcal:energyKcal(minutes,met),savedAt:new Date().toISOString()};
+persist();renderSavedExercise();
+}
+function showWeightTrends(){
+const btn=document.querySelectorAll(".tabs button")[3];
+tab("records",btn);renderWeight();
+document.getElementById("weightTrends").scrollIntoView({behavior:"smooth",block:"start"});
+}
+function renderQuickWeightStatus(){
+const v=state.records?.[date]||{};
+document.getElementById("quickWeight").value=validWeight(v.weight)?v.weight:"";
+document.getElementById("eveningWeight").value=validWeight(v.eveningWeight)?v.eveningWeight:"";
+document.getElementById("quickWeightStatus").textContent="今日记录：☀️ "+(validWeight(v.weight)?v.weight+"斤":"未填")+" · 🌙 "+(validWeight(v.eveningWeight)?v.eveningWeight+"斤":"未填");
+}
+function quickSave(slot){
+const evening=slot==="evening",el=document.getElementById(evening?"eveningWeight":"quickWeight"),raw=el.value;
+if(!validWeight(raw)){alert("请输入合理体重（60–250斤）");return;}
+const key=evening?"eveningWeight":"weight";
+state.records[date]={...(state.records[date]||{}),[key]:Number(raw).toFixed(1)};
+persist();renderQuickWeightStatus();renderHistory();renderWeight();renderExercise();
+if(document.getElementById("recordDate").value===date)document.getElementById(evening?"eveningWeightRecord":"weight").value=Number(raw).toFixed(1);
+}
+function chartDate(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
+function drawWeightChart(canvasId,dates,period){
+const c=document.getElementById(canvasId);if(!c)return;
+const ctx=c.getContext("2d");if(!ctx)return;
+const W=c.width,H=c.height,left=60,right=W-18,top=19,bottom=H-39;
+ctx.clearRect(0,0,W,H);
+const values=dates.flatMap(d=>{const r=state.records?.[d]||{};return [r.weight,r.eveningWeight].filter(validWeight).map(Number);});
+ctx.font="15px -apple-system, sans-serif";ctx.fillStyle="#937b87";
+if(!values.length){ctx.textAlign="center";ctx.fillText(period+"暂无体重记录，保存后会自动生成曲线",W/2,H/2);ctx.textAlign="left";return;}
+let minV=Math.min(...values)-0.6,maxV=Math.max(...values)+0.6;if(maxV-minV<1.5){const mid=(minV+maxV)/2;minV=mid-0.75;maxV=mid+0.75;}
+const py=v=>bottom-(v-minV)/(maxV-minV)*(bottom-top);
+const px=i=>left+(dates.length===1?0:i*(right-left)/(dates.length-1));
+ctx.textAlign="right";ctx.lineWidth=1;
+for(let i=0;i<=3;i++){const v=minV+(maxV-minV)*i/3,y=py(v);ctx.beginPath();ctx.strokeStyle="#efdee5";ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();ctx.fillStyle="#907784";ctx.fillText(v.toFixed(1),left-8,y+5);}
+ctx.textAlign="center";ctx.fillStyle="#907784";
+const tickIndices=period==="本周"?[0,1,2,3,4,5,6]:[0,Math.floor((dates.length-1)/4),Math.floor((dates.length-1)/2),Math.floor((dates.length-1)*3/4),dates.length-1];
+[...new Set(tickIndices)].forEach(i=>{const label=period==="本周"?"周"+["一","二","三","四","五","六","日"][i]:String(Number(dates[i].slice(8)))+"日";ctx.fillText(label,px(i),H-13);});
+const series=[{key:"weight",color:"#d9789a"},{key:"eveningWeight",color:"#6f9cae"}];
+for(const line of series){
+ctx.strokeStyle=line.color;ctx.fillStyle=line.color;ctx.lineWidth=3;let started=false;
+for(let i=0;i<dates.length;i++){
+const v=state.records?.[dates[i]]?.[line.key];
+if(!validWeight(v)){if(started)ctx.stroke();started=false;continue;}
+const x=px(i),y=py(Number(v));
+if(!started){ctx.beginPath();ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);
+}
+if(started)ctx.stroke();
+for(let i=0;i<dates.length;i++){
+const v=state.records?.[dates[i]]?.[line.key];if(!validWeight(v))continue;
+ctx.beginPath();ctx.arc(px(i),py(Number(v)),4.3,0,Math.PI*2);ctx.fill();
+}
+}
+ctx.textAlign="left";
+}
+function renderWeight(){
+const records=Object.entries(state.records||{}).filter(([d])=>/^\d{4}-\d{2}-\d{2}$/.test(d)).sort((a,b)=>a[0].localeCompare(b[0]));
+const morning=records.filter(([d,r])=>validWeight(r.weight)),evening=records.filter(([d,r])=>validWeight(r.eveningWeight));
+const lastA=morning[morning.length-1],lastP=evening[evening.length-1];
+document.getElementById("weightSummary").innerHTML=
+'<div class="stat"><span class="mini">最近晨起体重</span><b>'+(lastA?lastA[1].weight+"斤":"暂无")+'</b><span class="mini">'+(lastA?lastA[0]:"")+'</span></div>'+
+'<div class="stat"><span class="mini">最近睡前体重</span><b>'+(lastP?lastP[1].eveningWeight+"斤":"暂无")+'</b><span class="mini">'+(lastP?lastP[0]:"")+'</span></div>';
+const today=new Date(date+"T12:00:00"),monday=new Date(today);monday.setDate(today.getDate()-(today.getDay()+6)%7);
+const week=Array.from({length:7},(_,i)=>{let d=new Date(monday);d.setDate(monday.getDate()+i);return chartDate(d);});
+const monthCount=new Date(today.getFullYear(),today.getMonth()+1,0).getDate(),month=Array.from({length:monthCount},(_,i)=>chartDate(new Date(today.getFullYear(),today.getMonth(),i+1)));
+drawWeightChart("weightWeekChart",week,"本周");
+drawWeightChart("weightMonthChart",month,"本月");
+}
 function savePeriod(){let v=document.getElementById("periodStart").value;if(!v)return alert("请选择实际开始日期");state.period={start:v,length:Number(document.getElementById("periodLength").value)};persist();renderPeriod();renderExercise();alert("已保存经期记录");}
 function renderPeriod(){let p=state.period||{};document.getElementById("periodStart").value=p.start||"";document.getElementById("periodLength").value=p.length||5;let x=periodStatus(date);document.getElementById("periodInfo").textContent=p.start?("最近记录："+p.start+"；系统按28天周期估算，仅供参考。"+(x.active?" 今天可能处于经期，按身体感受调整运动。":" 如周期不规律，请及时更新实际开始日期。")):("目前按每月15号预计经期提醒；尚未记录实际日期，不能准确判断周期。"+(x.active?" 今天可能处于经期。":""));}
 function renderTakeout(){document.getElementById("takeoutTips").innerHTML=takeouts.map(([name,meal,tip])=>'<div class="action"><strong>'+name+'</strong><div>'+meal+'</div><div class="mini">'+tip+'</div></div>').join("");}
