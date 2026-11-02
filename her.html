@@ -250,40 +250,88 @@ function renderRecordMealEditor(d){
  document.getElementById("recordMealEditor").innerHTML=[0,1,2].map((i)=>'<div class="record-meal-item"><strong>'+["早餐","午餐","轻晚餐"][i]+'</strong><select id="editMealStatus'+i+'">'+opts.map(x=>'<option value="'+x+'" '+(x===(m[i]?.status||"未记录")?"selected":"")+'>'+x+'</option>').join("")+'</select><input type="text" maxlength="160" id="editMealNote'+i+'" placeholder="实际吃了什么？可留空" value="'+escapeText(m[i]?.note||"")+'"></div>').join("");
 }
 
+
 function saveRecord(){
-const d=document.getElementById("recordDate").value;
-if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert("请选择有效日期");
-const am=document.getElementById("weight").value.trim(),pm=document.getElementById("eveningWeightRecord").value.trim();
-if((am&&!validWeight(am))||(pm&&!validWeight(pm)))return alert("体重请填写60–250斤范围内的数字，或留空");
-const r={...(state.records[d]||{}),note:document.getElementById("note").value};
-if(am)r.weight=Number(am).toFixed(1);
-if(pm)r.eveningWeight=Number(pm).toFixed(1);
-state.records[d]=r;persist();renderHistory();renderWeight();
-if(d===date){renderQuickWeightStatus();renderExercise();renderTodayRecordSummary();}
-alert("健康记录已保存 ♡");
+ const d=document.getElementById("recordDate").value;
+ if(!isDayKey(d)||d>date)return alert("请选择今天或之前的有效日期");
+ const am=document.getElementById("weight").value.trim(),pm=document.getElementById("eveningWeightRecord").value.trim();
+ if((am&&!validWeight(am))||(pm&&!validWeight(pm)))return alert("体重请填写60–250斤范围内的数字");
+ const rawMinutes=document.getElementById("recordExerciseMinutes").value.trim(),type=document.getElementById("recordExerciseType").value;
+ if(rawMinutes!==""&&(!Number.isInteger(Number(rawMinutes))||Number(rawMinutes)<0||Number(rawMinutes)>240))return alert("运动时间请填写0–240分钟");
+ if(type==="rest"&&rawMinutes!==""&&Number(rawMinutes)!==0)return alert("休息日请填写0分钟");
+ const r={...(state.records[d]||{})},note=document.getElementById("note").value.trim();
+ if(am)r.weight=Number(am).toFixed(1);else delete r.weight;
+ if(pm)r.eveningWeight=Number(pm).toFixed(1);else delete r.eveningWeight;
+ if(note)r.note=note;else delete r.note;
+ if(Object.keys(r).length)state.records[d]=r;else delete state.records[d];
+ if(rawMinutes!==""){
+  const minutes=Number(rawMinutes),kg=validWeight(r.weight)?Number(r.weight)/2:50.5,profile=activityTypes[type]||activityTypes.walk;
+  state.exerciseLogs[d]={type,minutes,kcal:Math.round(minutes*profile.met*kg/60),kg:Number(kg.toFixed(1)),savedAt:new Date().toISOString()};
+ }
+ const meal={...(state.mealLogs[d]||{})};let anyMeal=false;
+ for(let i=0;i<3;i++){
+  const status=document.getElementById("editMealStatus"+i).value,n=document.getElementById("editMealNote"+i).value.trim();
+  meal[i]={status,note:n};
+  if(status!=="未记录"||n)anyMeal=true;
+ }
+ if(anyMeal){meal.savedAt=new Date().toLocaleString("zh-CN");state.mealLogs[d]=meal;}
+ else delete state.mealLogs[d];
+ persist();renderHistory();renderWeight();
+ if(d===date){renderQuickWeightStatus();renderExercise();renderMealLog();renderTodayRecordSummary();}
+ document.getElementById("recordSaveStatus").textContent=d+" 保存成功（已同步本机每日备份）";
 }
 function escapeText(v){return String(v??"").replace(/[&<>"\x27]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","\x27":"&#39;"}[c]));}
-function renderHistory(){
-const items=Object.entries(state.records||{}).sort((a,b)=>b[0].localeCompare(a[0]));
-document.getElementById("history").innerHTML='<h3>历史记录</h3>'+
-(items.length?items.map(([d,r])=>'<div class="line"><div><strong>'+escapeText(d)+'</strong><div class="small">'+
-(validWeight(r.weight)?'☀️ '+escapeText(r.weight)+'斤 ':'')+
-(validWeight(r.eveningWeight)?'🌙 '+escapeText(r.eveningWeight)+'斤 ':'')+
-escapeText(r.note||(!validWeight(r.weight)&&!validWeight(r.eveningWeight)?"已记录":""))+
-'</div></div><button class="btn ghost" onclick="loadRecord('+JSON.stringify(d)+')">查看</button></div>').join(""):'<p class="muted">还没有健康记录</p>');
-}
+function renderHistory(){renderDailyArchive();}
 function loadRecord(d){
-const r=state.records[d]||{};
-document.getElementById("recordDate").value=d;
-document.getElementById("weight").value=validWeight(r.weight)?r.weight:"";
-document.getElementById("eveningWeightRecord").value=validWeight(r.eveningWeight)?r.eveningWeight:"";
-document.getElementById("note").value=r.note||"";
-document.getElementById("recordDate").scrollIntoView({behavior:"smooth",block:"center"});
+ if(!isDayKey(d))return;
+ const r=state.records[d]||{},e=state.exerciseLogs[d];
+ document.getElementById("recordDate").value=d;
+ document.getElementById("weight").value=validWeight(r.weight)?r.weight:"";
+ document.getElementById("eveningWeightRecord").value=validWeight(r.eveningWeight)?r.eveningWeight:"";
+ document.getElementById("note").value=r.note||"";
+ document.getElementById("recordExerciseType").value=e?.type||"walk";
+ document.getElementById("recordExerciseMinutes").value=e?e.minutes:"";
+ document.getElementById("recordSaveStatus").textContent="";
+ renderRecordMealEditor(d);
 }
-renderHistory();
-function backup(){let b=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="健康打卡备份-"+date+".json";a.click();URL.revokeObjectURL(a.href)}
-function restore(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let v=JSON.parse(r.result);if(!v||typeof v!=="object")throw Error();if(confirm("导入将覆盖当前本机记录，确定吗？")){state=v;state.checks||={};state.goods||={};state.records||={};state.mealLogs||={};state.exerciseLogs||={};persist();location.reload()}}catch(e){alert("备份文件格式不正确")}};r.readAsText(f)}
-
+function downloadData(textData,fileName,mime){
+ const blob=new Blob([textData],{type:mime}),a=document.createElement("a"),url=URL.createObjectURL(blob);
+ a.href=url;a.download=fileName;document.body.appendChild(a);a.click();a.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+function backup(){
+ const payload=JSON.stringify({...state,exportedAt:new Date().toISOString()},null,2);
+ downloadData(payload,"杨馨怡-健康记录-完整备份-"+date+".json","application/json;charset=utf-8");
+}
+function csvValue(v){let value=String(v??"").replace(/^[=+@\-\t\r]/,"'&");return '"'+value.replace(/"/g,'""')+'"';}
+function exportRecentDays(){
+ const head=["日期","早上体重(斤)","晚上体重(斤)","运动类型","运动分钟","运动估算千卡","早餐状态","早餐实际内容","午餐状态","午餐实际内容","轻晚餐状态","轻晚餐实际内容","其他备注"];
+ const rows=[head];
+ for(const d of diaryDates(5)){
+  const x=diaryDay(d),m=x.meals||{},e=x.exercise||{};
+  rows.push([d,validWeight(x.weight.weight)?x.weight.weight:"",validWeight(x.weight.eveningWeight)?x.weight.eveningWeight:"",e.type?activityTypes[e.type]?.label||"运动":"",e.minutes??"",e.kcal??"",
+    m[0]?.status||"",m[0]?.note||"",m[1]?.status||"",m[1]?.note||"",m[2]?.status||"",m[2]?.note||"",x.weight.note||""]);
+ }
+ const csv="\uFEFF"+rows.map(row=>row.map(csvValue).join(",")).join("\r\n");
+ downloadData(csv,"杨馨怡-最近5天记录-"+date+".csv","text/csv;charset=utf-8");
+}
+function restore(e){
+ const f=e.target.files[0];if(!f)return;
+ const r=new FileReader();
+ r.onload=()=>{
+  try{
+   const v=JSON.parse(r.result);
+   if(!v||typeof v!=="object"||Array.isArray(v)||(!v.records&&!v.mealLogs&&!v.exerciseLogs))throw Error("格式不匹配");
+   if(confirm("导入会替换此浏览器里的现有记录，建议先导出备份。确定导入？")){
+    state=v;state.checks||={};state.records||={};state.mealLogs||={};state.exerciseLogs||={};
+    localStorage.removeItem(DAILY_BACKUP_KEY);
+    persist();location.reload();
+   }
+  }catch(err){alert("备份文件无效，请选择此前导出的JSON文件")}
+ };
+ r.readAsText(f);
+}
+loadRecord(date);renderDailyArchive();renderBackupStatus();
 function weekKey(){let d=new Date(date+"T12:00:00"),dow=(d.getDay()+6)%7;d.setDate(d.getDate()-dow);return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
 function saveWeeklyReview(){let w=document.getElementById("waistCm").value,feel=document.getElementById("weeklyFeeling").value.trim();if(w&&(Number(w)<40||Number(w)>160))return alert("请检查腰围数值");if(!w&&!feel)return alert("请填写腰围或本周感受");state.weeklyReviews||={};state.weeklyReviews[weekKey()]={waist:w,feel};persist();renderWeeklyReviews();alert("本周复盘已保存");}
 function renderWeeklyReviews(){let rows=Object.entries(state.weeklyReviews||{}).sort((a,b)=>b[0].localeCompare(a[0]));document.getElementById("weeklyReviews").innerHTML=rows.length?rows.map(([d,v])=>'<div class="line"><div><strong>'+d+' 开始的一周</strong><div class="small">'+(v.waist?escapeText(v.waist)+'cm · ':'')+escapeText(v.feel||"已记录")+'</div></div></div>').join(""):'<p class="muted">暂无周复盘记录</p>';let current=state.weeklyReviews?.[weekKey()];if(current){document.getElementById("waistCm").value=current.waist||"";document.getElementById("weeklyFeeling").value=current.feel||"";}}
