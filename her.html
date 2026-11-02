@@ -55,7 +55,7 @@ function recoverLocalDailyBackup(){
  if(changed){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){backupError="恢复记录后写入失败，请导出备份";}}
 }
 function syncLocalDailyBackup(){
- const old=readLocalBackup(),days=old?old.days:{};
+ const days={};
  for(const name of DAY_FIELDS){const obj=state[name];if(!obj||typeof obj!=="object")continue;
   for(const [d,value] of Object.entries(obj)){if(!isDayKey(d))continue;
    days[d] ||= {};days[d][name]=value;
@@ -278,7 +278,7 @@ function saveRecord(){
  else delete state.mealLogs[d];
  persist();renderHistory();renderWeight();
  if(d===date){renderQuickWeightStatus();renderExercise();renderMealLog();renderTodayRecordSummary();}
- document.getElementById("recordSaveStatus").textContent=d+" 保存成功（已同步本机每日备份）";
+ document.getElementById("recordSaveStatus").textContent=backupError?d+" 已修改，但备份失败："+backupError:d+" 保存成功（已同步本机每日备份）";
 }
 function escapeText(v){return String(v??"").replace(/[&<>"\x27]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","\x27":"&#39;"}[c]));}
 function renderHistory(){renderDailyArchive();}
@@ -303,7 +303,7 @@ function backup(){
  const payload=JSON.stringify({...state,exportedAt:new Date().toISOString()},null,2);
  downloadData(payload,"杨馨怡-健康记录-完整备份-"+date+".json","application/json;charset=utf-8");
 }
-function csvValue(v){let value=String(v??"").replace(/^[=+@\-\t\r]/,"'&");return '"'+value.replace(/"/g,'""')+'"';}
+function csvValue(v){const value=String(v??"").replace(/^[=+@\-\t\r]/,m=>"'"+m);return '"'+value.replace(/"/g,'""')+'"';}
 function exportRecentDays(){
  const head=["日期","早上体重(斤)","晚上体重(斤)","运动类型","运动分钟","运动估算千卡","早餐状态","早餐实际内容","午餐状态","午餐实际内容","轻晚餐状态","轻晚餐实际内容","其他备注"];
  const rows=[head];
