@@ -36,8 +36,46 @@ const KEY="healthy-daily-v1";const workout=[
 ["老乡鸡","鸡汤/蒸鸡或鸡肉类主菜＋一份青菜＋正常份米饭；汤可以喝但不必喝完。","不要只点青菜和汤；注意鸡汤、卤味可能偏咸。"],
 ["沙县小吃","鸡腿饭或瘦肉饭＋青菜；也可选馄饨/扁肉汤＋拌面或米饭＋卤蛋。","一份汤通常不足以当完整午餐，适当搭配主食和蛋白质。"],
 ["自带饭","米饭/土豆/杂粮饭＋鸡蛋、鸡肉、牛肉或豆腐＋两种蔬菜。","提前一晚准备；熟食冷藏保存，上班途中注意保冷，食用前充分加热。"]
-];let state;try{state=JSON.parse(localStorage.getItem(KEY))||{}}catch(e){state={}}state.checks ||= {};state.goods ||= {};state.records ||= {};state.mealLogs ||= {};state.exerciseLogs ||= {};function persist(){localStorage.setItem(KEY,JSON.stringify(state))}
-const localDate=()=>{let d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};const date=localDate();document.getElementById("today").textContent=date;document.getElementById("recordDate").value=date;
+];let state;try{state=JSON.parse(localStorage.getItem(KEY))||{}}catch(e){state={}}
+state.checks ||= {};state.records ||= {};state.mealLogs ||= {};state.exerciseLogs ||= {};
+const DAILY_BACKUP_KEY="healthy-daily-dated-backup-v2";
+const DAY_FIELDS=["records","mealLogs","exerciseLogs","water","checks"];
+let archiveRange=5,backupError="";
+function isDayKey(k){return /^\d{4}-\d{2}-\d{2}$/.test(k);}
+function readLocalBackup(){try{const v=JSON.parse(localStorage.getItem(DAILY_BACKUP_KEY)||"null");return v&&v.version===2&&v.days&&typeof v.days==="object"?v:null;}catch(e){return null;}}
+function recoverLocalDailyBackup(){
+ const older=readLocalBackup();if(!older)return;
+ let changed=false;
+ for(const [d,snapshot] of Object.entries(older.days)){if(!isDayKey(d)||!snapshot||typeof snapshot!=="object")continue;
+  for(const name of DAY_FIELDS){if(!Object.prototype.hasOwnProperty.call(snapshot,name))continue;
+   if(!state[name]||typeof state[name]!=="object")state[name]={};
+   if(!Object.prototype.hasOwnProperty.call(state[name],d)){state[name][d]=snapshot[name];changed=true;}
+  }
+ }
+ if(changed){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){backupError="恢复记录后写入失败，请导出备份";}}
+}
+function syncLocalDailyBackup(){
+ const old=readLocalBackup(),days=old?old.days:{};
+ for(const name of DAY_FIELDS){const obj=state[name];if(!obj||typeof obj!=="object")continue;
+  for(const [d,value] of Object.entries(obj)){if(!isDayKey(d))continue;
+   days[d] ||= {};days[d][name]=value;
+  }
+ }
+ const payload={version:2,updatedAt:new Date().toISOString(),days};
+ localStorage.setItem(DAILY_BACKUP_KEY,JSON.stringify(payload));
+ backupError="";
+ return payload;
+}
+function renderBackupStatus(){
+ const el=document.getElementById("backupStatus");if(!el)return;
+ const saved=readLocalBackup(),total=Object.keys(saved?.days||{}).length;
+ el.textContent=backupError?"本机备份异常："+backupError:(total?"本机已自动备份 "+total+" 天记录":"暂无记录，保存后自动备份");
+}
+function persist(){
+ try{localStorage.setItem(KEY,JSON.stringify(state));syncLocalDailyBackup();renderDailyArchive();renderBackupStatus();}
+ catch(e){backupError="存储空间不足或浏览器禁用存储";renderBackupStatus();alert("保存未全部完成。请检查浏览器存储，并导出备份。");}
+}
+const localDate=()=>{let d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};const date=localDate();recoverLocalDailyBackup();try{syncLocalDailyBackup();}catch(e){backupError="浏览器本机存储不可用";}document.getElementById("today").textContent=date;document.getElementById("recordDate").value=date;
 function tab(id,b){document.querySelectorAll("main section").forEach(x=>x.classList.add("hidden"));document.getElementById(id).classList.remove("hidden");document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("active"));b.classList.add("active")}
 function getPeriodStart(){return state.period?.start||""}function periodStatus(dstr){const p=state.period||{};let start=p.start;if(!start){const y=Number(dstr.slice(0,4)),m=Number(dstr.slice(5,7));start=y+"-"+String(m).padStart(2,"0")+"-15";}let a=new Date(start+"T12:00:00"),b=new Date(dstr+"T12:00:00");let diff=Math.round((b-a)/86400000);if(p.start){const cycle=28;diff=((diff%cycle)+cycle)%cycle;return {active:diff<(Number(p.length)||5),estimated:false,day:diff+1};}return {active:diff>=0&&diff<5,estimated:true,day:diff+1};}
 function exerciseFor(d){let x=workout[(new Date(d+"T12:00:00").getDay()+6)%7],p=periodStatus(d);if(p.active){return {title:"经期友好｜按身体感受调整",duration:"0–20分钟，可休息",steps:["腹痛、头晕、疲劳明显时：休息，不做训练","状态尚可：轻松散步10–20分钟","可选轻柔伸展5分钟，避免强度过大","如果经量异常大、疼痛剧烈或不适明显，及时就医"],period:p};}return {...x,period:p};}
@@ -45,7 +83,7 @@ function addWater(n){state.water ||= {};state.water[date]=Math.max(0,(Number(sta
 function renderTodayGramMeals(){let i=(new Date(date+"T12:00:00").getDay()+6)%7;let a=meals[i];document.getElementById("todayGramMeals").innerHTML='<p class="pill">今日周'+["一","二","三","四","五","六","日"][i]+' · 与对应星期菜单相同</p>'+mealLabels.map((t,j)=>'<div class="action"><strong>'+mealHeadline(i,j)+'</strong><div>推荐：'+a[j]+'</div>'+mealExtra(i,j)+'</div>').join("");}
 function renderMealLog(){const log=state.mealLogs[date]||{};const options=["未记录","按计划吃了","调整了食物","未吃／不饿"];document.getElementById("mealLogInputs").innerHTML=mealLabels.map((label,i)=>'<div class="action"><label><strong>'+label+'</strong><select id="mealStatus'+i+'">'+options.map(v=>'<option value="'+v+'" '+(log[i]?.status===v?'selected':'')+'>'+v+'</option>').join("")+'</select></label><input id="mealNote'+i+'" type="text" maxlength="160" style="margin-top:8px;width:100%;padding:10px;border:1px solid #e8cbd6;border-radius:10px" placeholder="实际吃了什么？可留空" value="'+escapeText(log[i]?.note||"")+'"></div>').join("");document.getElementById("mealLogStatus").textContent=log.savedAt?'本日已保存 · '+log.savedAt:'';}
 function saveMealLog(){const log={savedAt:new Date().toLocaleString("zh-CN")};for(let i=0;i<3;i++){log[i]={status:document.getElementById("mealStatus"+i).value,note:document.getElementById("mealNote"+i).value.trim()};}state.mealLogs[date]=log;persist();renderMealLog();renderMealLogHistory();renderTodayRecordSummary();}
-function renderMealLogHistory(){const rows=Object.entries(state.mealLogs||{}).sort((a,b)=>b[0].localeCompare(a[0]));document.getElementById("mealLogHistory").innerHTML=rows.length?rows.map(([d,log])=>'<div class="action"><strong>'+escapeText(d)+'</strong>'+mealLabels.map((label,i)=>'<div class="small">'+label+'：'+escapeText(log[i]?.status||"未记录")+(log[i]?.note?' · '+escapeText(log[i].note):'')+'</div>').join("")+'</div>').join(""):'<p class="muted">还没有饮食记录。可在首页保存第一天。</p>';}
+function renderMealLogHistory(){renderDailyArchive();}
 
 const workoutEnergy=[
 {met:4.0,min:20,max:25},
@@ -90,11 +128,7 @@ function saveExercise(){
  state.exerciseLogs[date]={type,minutes,kcal:Math.round(minutes*profile.met*kg/60),kg:Number(kg.toFixed(1)),savedAt:new Date().toISOString()};
  persist();renderSavedExercise();
 }
-function renderExerciseHistory(){
- const el=document.getElementById("exerciseLogHistory");if(!el)return;
- const entries=Object.entries(state.exerciseLogs||{}).sort((a,b)=>b[0].localeCompare(a[0]));
- el.innerHTML=entries.length?entries.map(([d,x])=>'<div class="line"><div><strong>'+escapeText(d)+'</strong><div class="small">'+escapeText(activityTypes[x.type]?.label||"运动")+" · "+Number(x.minutes||0)+"分钟"+' · 约'+Number(x.kcal||0)+'千卡</div></div></div>').join(""):'<p class="muted">暂无运动记录，首页可保存第一天。</p>';
-}
+function renderExerciseHistory(){renderDailyArchive();}
 function renderTodayRecordSummary(){
  const el=document.getElementById("todayRecordSummary");if(!el)return;
  const m=state.mealLogs?.[date],e=state.exerciseLogs?.[date],w=state.records?.[date]||{},i=todayWeekIndex();
@@ -103,7 +137,7 @@ function renderTodayRecordSummary(){
  el.innerHTML='<div class="stats"><div class="stat"><span class="mini">今日食谱全份参考</span><b>约 '+sum+' 千卡</b></div><div class="stat"><span class="mini">已记录饮食</span><b>'+logged+'/3 餐</b></div><div class="stat"><span class="mini">体重记录</span><b>'+(validWeight(w.weight)?"早✓ ":"早— ")+(validWeight(w.eveningWeight)?"晚✓":"晚—")+'</b></div><div class="stat"><span class="mini">实际运动</span><b>'+(e?e.minutes+" 分钟":"未记录")+'</b></div></div><p class="mini">菜单热量不包含加餐，不是每日摄入目标；只按食谱估算，不代表实际吃下的热量。</p>';
 }
 function showWeightTrends(){
-const btn=document.querySelectorAll(".tabs button")[3];
+const btn=document.querySelectorAll(".tabs button")[2];
 tab("records",btn);renderWeight();
 document.getElementById("weightTrends").scrollIntoView({behavior:"smooth",block:"start"});
 }
@@ -118,7 +152,7 @@ const evening=slot==="evening",el=document.getElementById(evening?"eveningWeight
 if(!validWeight(raw)){alert("请输入合理体重（60–250斤）");return;}
 const key=evening?"eveningWeight":"weight";
 state.records[date]={...(state.records[date]||{}),[key]:Number(raw).toFixed(1)};
-persist();renderQuickWeightStatus();renderHistory();renderWeight();renderExercise();renderTodayRecordSummary();renderTodayRecordSummary();
+persist();renderQuickWeightStatus();renderHistory();renderWeight();renderExercise();renderTodayRecordSummary();
 if(document.getElementById("recordDate").value===date)document.getElementById(evening?"eveningWeightRecord":"weight").value=Number(raw).toFixed(1);
 }
 function chartDate(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
@@ -175,6 +209,47 @@ function renderChecks(){let d=state.checks[date]||{};document.getElementById("ch
 function toggleCheck(i,v){(state.checks[date] ||= {})[i]=v;persist();renderChecks()}renderChecks();renderWater();renderTodayGramMeals();renderMealLog();renderMealLogHistory();renderQuickWeightStatus();renderExercise();renderPeriod();renderWeight();renderTakeout();renderTodayRecordSummary();
 let selected=(new Date().getDay()+6)%7;function renderMenu(){document.getElementById("days").innerHTML=["一","二","三","四","五","六","日"].map((x,i)=>'<button class="day '+(i===selected?"active":"")+'" onclick="selected='+i+';renderMenu()">周'+x+'</button>').join("");let a=meals[selected],w=workout[selected];document.getElementById("dayMenu").innerHTML='<h2>周'+["一","二","三","四","五","六","日"][selected]+' · 饮食与运动</h2>'+mealLabels.map((x,i)=>'<div class="line"><div><strong>'+mealHeadline(selected,i)+'</strong><div class="small">推荐：'+a[i]+'</div>'+mealExtra(selected,i)+'</div></div>').join("")+'<div class="action"><strong>🚶 今日运动 · '+w.title+'</strong><span class="pill">'+w.duration+'</span><div class="small" style="margin:8px 0">'+exerciseEstimateLine(workoutEnergy[selected])+'</div>'+w.steps.map((step,i)=>'<div class="small" style="padding:6px 0">'+(i+1)+'. '+step+'</div>').join("")+'</div><p class="muted">运动内容与首页共用同一份周计划。经期实际情况因人而异；若经期不适，请以首页的当日调整提示为准，可休息或减少运动。</p><p class="muted">餐食份量可按食欲调整；外卖食材重量为估算。</p>';}
 renderMenu();
+
+function diaryDay(d){return {weight:state.records?.[d]||{},meals:state.mealLogs?.[d]||null,exercise:state.exerciseLogs?.[d]||null};}
+function diaryDates(range){
+ if(range===0){const keys=new Set();for(const k of ["records","mealLogs","exerciseLogs"]){for(const d of Object.keys(state[k]||{})){if(isDayKey(d)&&d<=date)keys.add(d);}}return [...keys].sort().reverse();}
+ const out=[];const t=new Date(date+"T12:00:00");for(let i=0;i<range;i++){let v=new Date(t);v.setDate(t.getDate()-i);out.push(chartDate(v));}return out;
+}
+function diaryWeekday(d){return ["周日","周一","周二","周三","周四","周五","周六"][new Date(d+"T12:00:00").getDay()];}
+function isMealLogged(m){return !!m&&[0,1,2].some(i=>m[i]&&((m[i].status&&m[i].status!=="未记录")||m[i].note));}
+function hasDiary(d){const x=diaryDay(d);return validWeight(x.weight.weight)||validWeight(x.weight.eveningWeight)||!!x.weight.note||!!x.exercise||isMealLogged(x.meals);}
+function archiveMealText(m,i,d){
+ const v=m?.[i]||{},label=["早餐","午餐","轻晚餐"][i],status=v.status||"未记录",note=v.note||"";
+ if(status==="未记录"&&!note)return '<div class="small"><strong>'+label+'：</strong>未记录</div>';
+ const dayIndex=(new Date(d+"T12:00:00").getDay()+6)%7;
+ const food=status==="按计划吃了"?(meals[dayIndex]?.[i]||"按计划"):(note||"未填写具体食物");
+ const est=status==="按计划吃了"?' · 食谱约'+mealKcal[dayIndex][i]+'千卡（参考）':"";
+ return '<div class="small"><strong>'+label+'：</strong>'+escapeText(status)+' · '+escapeText(food)+est+(note&&status==="按计划吃了"?' · 备注：'+escapeText(note):"")+'</div>';
+}
+function renderDailyArchive(){
+ const target=document.getElementById("dailyArchiveList");if(!target)return;
+ const days=diaryDates(archiveRange);
+ document.getElementById("archiveCount").textContent=(archiveRange===0?"全部已存日期":archiveRange===5?"最近5天":"最近30天")+' · '+days.filter(hasDiary).length+' 天有实际记录';
+ for(const x of [5,30,0]){const b=document.getElementById("archive"+(x===0?"All":x)+"Btn");if(b)b.className="btn"+(x===archiveRange?"":" ghost");}
+ if(!days.length){target.innerHTML='<p class="muted">还没有记录，先在今日页面保存体重、饮食或运动。</p>';return;}
+ target.innerHTML=days.map((d,j)=>{
+  const {weight:r,meals:m,exercise:e}=diaryDay(d);
+  const a=validWeight(r.weight)?escapeText(r.weight)+"斤":"未记录",b=validWeight(r.eveningWeight)?escapeText(r.eveningWeight)+"斤":"未记录";
+  const realMeals=m?[0,1,2].filter(i=>m[i]&&((m[i].status&&m[i].status!=="未记录")||m[i].note)).length:0;
+  const motion=e?(escapeText(activityTypes[e.type]?.label||"运动")+" "+Number(e.minutes||0)+"分钟 · 估算"+Number(e.kcal||0)+"千卡"):"未记录";
+  const mealDetails=[0,1,2].map(i=>archiveMealText(m,i,d)).join("");
+  const summary='早 '+a+'　晚 '+b+' · 饮食 '+realMeals+'/3 · '+(e?Number(e.minutes||0)+'分钟运动':"运动未记");
+  return '<details class="archive-day" '+(archiveRange===5||j===0?"open":"")+'><summary><div class="archive-date">'+escapeText(d)+' · '+diaryWeekday(d)+'</div><div class="archive-meta">'+summary+'</div></summary><div class="archive-detail"><div class="small"><strong>☀️ 晨重：</strong>'+a+'　<strong>🌙 晚重：</strong>'+b+'</div><div class="small"><strong>🏃 运动：</strong>'+motion+'</div>'+mealDetails+(r.note?'<div class="small"><strong>备注：</strong>'+escapeText(r.note)+'</div>':"")+'<button class="btn ghost archive-edit-btn" onclick="editArchiveDay('+JSON.stringify(d)+')">补录／修改这一天</button></div></details>';
+ }).join("");
+}
+function setArchiveRange(n){archiveRange=n;renderDailyArchive();}
+function editArchiveDay(d){loadRecord(d);document.getElementById("recordEditor").scrollIntoView({behavior:"smooth",block:"start"});}
+function renderRecordMealEditor(d){
+ const m=state.mealLogs?.[d]||{};
+ const opts=["未记录","按计划吃了","调整了食物","未吃／不饿"];
+ document.getElementById("recordMealEditor").innerHTML=[0,1,2].map((i)=>'<div class="record-meal-item"><strong>'+["早餐","午餐","轻晚餐"][i]+'</strong><select id="editMealStatus'+i+'">'+opts.map(x=>'<option value="'+x+'" '+(x===(m[i]?.status||"未记录")?"selected":"")+'>'+x+'</option>').join("")+'</select><input type="text" maxlength="160" id="editMealNote'+i+'" placeholder="实际吃了什么？可留空" value="'+escapeText(m[i]?.note||"")+'"></div>').join("");
+}
+
 function saveRecord(){
 const d=document.getElementById("recordDate").value;
 if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert("请选择有效日期");
