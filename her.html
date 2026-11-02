@@ -36,7 +36,7 @@ const KEY="healthy-daily-v1";const workout=[
 ["老乡鸡","鸡汤/蒸鸡或鸡肉类主菜＋一份青菜＋正常份米饭；汤可以喝但不必喝完。","不要只点青菜和汤；注意鸡汤、卤味可能偏咸。"],
 ["沙县小吃","鸡腿饭或瘦肉饭＋青菜；也可选馄饨/扁肉汤＋拌面或米饭＋卤蛋。","一份汤通常不足以当完整午餐，适当搭配主食和蛋白质。"],
 ["自带饭","米饭/土豆/杂粮饭＋鸡蛋、鸡肉、牛肉或豆腐＋两种蔬菜。","提前一晚准备；熟食冷藏保存，上班途中注意保冷，食用前充分加热。"]
-];let state;try{state=JSON.parse(localStorage.getItem(KEY))||{}}catch(e){state={}}state.checks ||= {};state.goods ||= {};state.records ||= {};state.mealLogs ||= {};function persist(){localStorage.setItem(KEY,JSON.stringify(state))}
+];let state;try{state=JSON.parse(localStorage.getItem(KEY))||{}}catch(e){state={}}state.checks ||= {};state.goods ||= {};state.records ||= {};state.mealLogs ||= {};state.exerciseLogs ||= {};function persist(){localStorage.setItem(KEY,JSON.stringify(state))}
 const localDate=()=>{let d=new Date();return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0")};const date=localDate();document.getElementById("today").textContent=date;document.getElementById("recordDate").value=date;
 function tab(id,b){document.querySelectorAll("main section").forEach(x=>x.classList.add("hidden"));document.getElementById(id).classList.remove("hidden");document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("active"));b.classList.add("active")}
 function getPeriodStart(){return state.period?.start||""}function periodStatus(dstr){const p=state.period||{};let start=p.start;if(!start){const y=Number(dstr.slice(0,4)),m=Number(dstr.slice(5,7));start=y+"-"+String(m).padStart(2,"0")+"-15";}let a=new Date(start+"T12:00:00"),b=new Date(dstr+"T12:00:00");let diff=Math.round((b-a)/86400000);if(p.start){const cycle=28;diff=((diff%cycle)+cycle)%cycle;return {active:diff<(Number(p.length)||5),estimated:false,day:diff+1};}return {active:diff>=0&&diff<5,estimated:true,day:diff+1};}
@@ -154,15 +154,44 @@ function savePeriod(){let v=document.getElementById("periodStart").value;if(!v)r
 function renderPeriod(){let p=state.period||{};document.getElementById("periodStart").value=p.start||"";document.getElementById("periodLength").value=p.length||5;let x=periodStatus(date);document.getElementById("periodInfo").textContent=p.start?("最近记录："+p.start+"；系统按28天周期估算，仅供参考。"+(x.active?" 今天可能处于经期，按身体感受调整运动。":" 如周期不规律，请及时更新实际开始日期。")):("目前按每月15号预计经期提醒；尚未记录实际日期，不能准确判断周期。"+(x.active?" 今天可能处于经期。":""));}
 function renderTakeout(){document.getElementById("takeoutTips").innerHTML=takeouts.map(([name,meal,tip])=>'<div class="action"><strong>'+name+'</strong><div>'+meal+'</div><div class="mini">'+tip+'</div></div>').join("");}
 function renderChecks(){let d=state.checks[date]||{};document.getElementById("checks").innerHTML=["早餐吃好","午餐吃好","晚间按饥饿感照顾自己","轻松活动"].map((x,i)=>'<label class="line"><span class="'+(d[i]?"done":"")+'">'+x+'</span><input type="checkbox" '+(d[i]?"checked":"")+' onchange="toggleCheck('+i+',this.checked)"></label>').join("");let n=[0,1,2,3].filter(i=>d[i]===true).length;document.getElementById("progress").value=n;document.getElementById("progressText").textContent=n+"/4 项完成"}
-function toggleCheck(i,v){(state.checks[date] ||= {})[i]=v;persist();renderChecks()}renderChecks();renderWater();renderTodayGramMeals();renderMealLog();renderMealLogHistory();renderExercise();renderPeriod();renderWeight();renderTakeout();
-let selected=(new Date().getDay()+6)%7;function renderMenu(){document.getElementById("days").innerHTML=["一","二","三","四","五","六","日"].map((x,i)=>'<button class="day '+(i===selected?"active":"")+'" onclick="selected='+i+';renderMenu()">周'+x+'</button>').join("");let a=meals[selected],w=workout[selected];document.getElementById("dayMenu").innerHTML='<h2>周'+["一","二","三","四","五","六","日"][selected]+' · 饮食与运动</h2>'+mealLabels.map((x,i)=>'<div class="line"><div><strong>'+x+'</strong><div class="small">'+a[i]+'</div>'+mealExtra(selected,i)+'</div></div>').join("")+'<div class="action"><strong>🚶 今日运动 · '+w.title+'</strong><span class="pill">'+w.duration+'</span>'+w.steps.map((step,i)=>'<div class="small" style="padding:6px 0">'+(i+1)+'. '+step+'</div>').join("")+'</div><p class="muted">运动内容与首页共用同一份周计划。经期实际情况因人而异；若经期不适，请以首页的当日调整提示为准，可休息或减少运动。</p><p class="muted">餐食份量可按食欲调整；外卖食材重量为估算。</p>';}
+function toggleCheck(i,v){(state.checks[date] ||= {})[i]=v;persist();renderChecks()}renderChecks();renderWater();renderTodayGramMeals();renderMealLog();renderMealLogHistory();renderQuickWeightStatus();renderExercise();renderPeriod();renderWeight();renderTakeout();
+let selected=(new Date().getDay()+6)%7;function renderMenu(){document.getElementById("days").innerHTML=["一","二","三","四","五","六","日"].map((x,i)=>'<button class="day '+(i===selected?"active":"")+'" onclick="selected='+i+';renderMenu()">周'+x+'</button>').join("");let a=meals[selected],w=workout[selected];document.getElementById("dayMenu").innerHTML='<h2>周'+["一","二","三","四","五","六","日"][selected]+' · 饮食与运动</h2>'+mealLabels.map((x,i)=>'<div class="line"><div><strong>'+x+'</strong><div class="small">'+a[i]+'</div>'+mealExtra(selected,i)+'</div></div>').join("")+'<div class="action"><strong>🚶 今日运动 · '+w.title+'</strong><span class="pill">'+w.duration+'</span><div class="small" style="margin:8px 0">'+exerciseEstimateLine(workoutEnergy[selected])+'</div>'+w.steps.map((step,i)=>'<div class="small" style="padding:6px 0">'+(i+1)+'. '+step+'</div>').join("")+'</div><p class="muted">运动内容与首页共用同一份周计划。经期实际情况因人而异；若经期不适，请以首页的当日调整提示为准，可休息或减少运动。</p><p class="muted">餐食份量可按食欲调整；外卖食材重量为估算。</p>';}
 renderMenu();
 function renderGoods(){document.getElementById("goods").innerHTML=shopping.map(([group,items])=>'<h3>'+group+'</h3>'+items.map(x=>'<label class="line"><span class="'+(state.goods[x]?"done":"")+'">'+x+'</span><input type="checkbox" '+(state.goods[x]?"checked":"")+' onchange="state.goods['+JSON.stringify(x).replaceAll('"',"'")+']=this.checked;persist();renderGoods()"></label>').join("")).join("")}renderGoods();
 function copyGoods(){let s=shopping.map(([g,a])=>g+"\n"+a.map(x=>(state.goods[x]?"☑ ":"□ ")+x).join("\n")).join("\n\n");navigator.clipboard&&navigator.clipboard.writeText?navigator.clipboard.writeText(s).then(()=>alert("已复制采购清单")).catch(()=>prompt("长按复制",s)):prompt("长按复制",s)}function resetGoods(){if(confirm("重置采购勾选？")){state.goods={};persist();renderGoods()}}
-function saveRecord(){let d=document.getElementById("recordDate").value;if(!d)return alert("请选择日期");state.records[d]={...(state.records[d]||{}),weight:document.getElementById("weight").value,note:document.getElementById("note").value};persist();renderHistory();renderWeight();alert("保存成功 ♡")}
-function escapeText(v){return String(v??"").replace(/[&<>"\x27]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","\x27":"&#39;"}[c]));}function renderHistory(){document.getElementById("history").innerHTML='<h3>历史记录</h3>'+Object.keys(state.records).sort().reverse().map(d=>'<div class="line"><div><strong>'+d+'</strong><div class="small">'+(state.records[d].weight?state.records[d].weight+"斤 · ":"") +escapeText(state.records[d].note||"已记录")+'</div></div><button class="btn ghost" onclick="loadRecord('+JSON.stringify(d)+')">查看</button></div>').join("")}function loadRecord(d){document.getElementById("recordDate").value=d;document.getElementById("weight").value=state.records[d].weight||"";document.getElementById("note").value=state.records[d].note||""}renderHistory();
+function saveRecord(){
+const d=document.getElementById("recordDate").value;
+if(!/^\d{4}-\d{2}-\d{2}$/.test(d))return alert("请选择有效日期");
+const am=document.getElementById("weight").value.trim(),pm=document.getElementById("eveningWeightRecord").value.trim();
+if((am&&!validWeight(am))||(pm&&!validWeight(pm)))return alert("体重请填写60–250斤范围内的数字，或留空");
+const r={...(state.records[d]||{}),note:document.getElementById("note").value};
+if(am)r.weight=Number(am).toFixed(1);
+if(pm)r.eveningWeight=Number(pm).toFixed(1);
+state.records[d]=r;persist();renderHistory();renderWeight();
+if(d===date){renderQuickWeightStatus();renderExercise();}
+alert("健康记录已保存 ♡");
+}
+function escapeText(v){return String(v??"").replace(/[&<>"\x27]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","\x27":"&#39;"}[c]));}
+function renderHistory(){
+const items=Object.entries(state.records||{}).sort((a,b)=>b[0].localeCompare(a[0]));
+document.getElementById("history").innerHTML='<h3>历史记录</h3>'+
+(items.length?items.map(([d,r])=>'<div class="line"><div><strong>'+escapeText(d)+'</strong><div class="small">'+
+(validWeight(r.weight)?'☀️ '+escapeText(r.weight)+'斤 ':'')+
+(validWeight(r.eveningWeight)?'🌙 '+escapeText(r.eveningWeight)+'斤 ':'')+
+escapeText(r.note||(!validWeight(r.weight)&&!validWeight(r.eveningWeight)?"已记录":""))+
+'</div></div><button class="btn ghost" onclick="loadRecord('+JSON.stringify(d)+')">查看</button></div>').join(""):'<p class="muted">还没有健康记录</p>');
+}
+function loadRecord(d){
+const r=state.records[d]||{};
+document.getElementById("recordDate").value=d;
+document.getElementById("weight").value=validWeight(r.weight)?r.weight:"";
+document.getElementById("eveningWeightRecord").value=validWeight(r.eveningWeight)?r.eveningWeight:"";
+document.getElementById("note").value=r.note||"";
+document.getElementById("recordDate").scrollIntoView({behavior:"smooth",block:"center"});
+}
+renderHistory();
 function backup(){let b=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="健康打卡备份-"+date+".json";a.click();URL.revokeObjectURL(a.href)}
-function restore(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let v=JSON.parse(r.result);if(!v||typeof v!=="object")throw Error();if(confirm("导入将覆盖当前本机记录，确定吗？")){state=v;state.checks||={};state.goods||={};state.records||={};state.mealLogs||={};persist();location.reload()}}catch(e){alert("备份文件格式不正确")}};r.readAsText(f)}
+function restore(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let v=JSON.parse(r.result);if(!v||typeof v!=="object")throw Error();if(confirm("导入将覆盖当前本机记录，确定吗？")){state=v;state.checks||={};state.goods||={};state.records||={};state.mealLogs||={};state.exerciseLogs||={};persist();location.reload()}}catch(e){alert("备份文件格式不正确")}};r.readAsText(f)}
 
 const eightWeeks=[["第1–2周｜建立节奏","固定早餐和午餐节奏，晚餐按食欲灵活安排；每周2次低冲击跳操或帕梅拉、2次晚间散步；不额外补偿性运动。"],["第3–4周｜稳定坚持","维持全天均衡饮食；运动后适度补水；散步可增加至每周3次，疲劳时休息。"],["第5–6周｜调整体验","优先观察腰围、睡眠、精力与衣服松紧；跟练可按舒适程度延长5分钟，不追求暴汗。"],["第7–8周｜复盘巩固","保持能长期坚持的饮食和活动安排；复盘腰围、体态与精神状态，不为体重数字限制进食。"]];
 function renderEightWeeks(){document.getElementById("eightWeekPlan").innerHTML=eightWeeks.map(([title,desc])=>'<div class="action"><strong>'+title+'</strong><div class="small">'+desc+'</div></div>').join("");}
